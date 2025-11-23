@@ -1,223 +1,63 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Built-in Backend Demo</title>
-    <!-- Load Tailwind CSS for styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Standard Library AI Interface</title>
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        /* Hide the video element used for capturing frames */
-        #videoElement { display: none; }
+        body { font-family: sans-serif; padding: 20px; }
+        #output { border: 1px solid #ccc; padding: 15px; min-height: 50px; white-space: pre-wrap; background-color: #f4f4f4; }
+        textarea { width: 80%; height: 100px; padding: 10px; margin-bottom: 10px; }
+        button { padding: 10px 20px; cursor: pointer; }
     </style>
 </head>
-<body class="bg-gray-50 flex flex-col items-center justify-center min-h-screen p-4">
+<body>
+    <h1>Standard Library AI Chat</h1>
 
-    <div class="w-full max-w-xl bg-white p-8 rounded-2xl shadow-2xl border border-gray-200 text-center">
-        <h1 class="text-3xl font-bold text-gray-800 mb-2">Built-in Python Server Demo</h1>
-        <p class="text-sm text-red-600 font-semibold mb-4">
-            ⚠️ WARNING: The Python server uses ONLY built-in modules (`http.server`) and CANNOT perform grayscale conversion. 
-            It will return the original image data (echo) to demonstrate connectivity.
-        </p>
+    <textarea id="user-input" placeholder="Ask the AI a question..."></textarea><br>
+    <button id="submit-btn">Send Query to Backend</button>
 
-        <!-- Video and Canvas for local capture (Hidden) -->
-        <video id="videoElement" playsinline autoplay muted width="500" height="300" class="hidden"></video>
-        <canvas id="captureCanvas" width="500" height="300" class="hidden"></canvas>
-        
-        <!-- Image element to display the result from the backend -->
-        <div class="mt-4 mb-4">
-            <h2 class="text-xl font-semibold mb-2 text-gray-700">Processed Output (from Built-in Server)</h2>
-            <img id="processedImage" 
-                 src="https://placehold.co/500x300/e0f2fe/0369a1?text=Awaiting+Frame+from+Built-in+Backend" 
-                 alt="Image from built-in Python server" 
-                 class="w-full max-w-full rounded-xl border-4 border-amber-500 shadow-lg mx-auto"
-                 width="500" height="300">
-        </div>
-
-        <!-- Status and Control -->
-        <div class="space-y-2">
-            <p id="status" class="text-sm font-medium text-red-600">Initializing...</p>
-            <p id="perf" class="text-xs font-mono text-gray-600">Last POST: N/A | Status: Idle</p>
-        </div>
-        
-        <button id="startStopButton" class="mt-6 w-full py-2 px-4 bg-amber-600 text-white font-semibold rounded-lg shadow-md hover:bg-amber-700 transition duration-150 ease-in-out" onclick="toggleStream()">
-            Start Camera & Built-in Processor
-        </button>
-    </div>
+    <h2>AI Response:</h2>
+    <div id="output">...</div>
 
     <script>
-        // --- Configuration ---
-        // NOTE: http.server defaults to port 8000
-        const SERVER_URL = 'http://127.0.0.1:8000/process_frame';
-        const IMAGE_WIDTH = 500;
-        const IMAGE_HEIGHT = 300;
-        const TARGET_DELAY_MS = 1500; // 1.5 seconds delay between sending frames
-
-        // --- DOM Elements ---
-        const videoElement = document.getElementById('videoElement');
-        const canvas = document.getElementById('captureCanvas');
-        const ctx = canvas.getContext('2d');
-        const statusEl = document.getElementById('status');
-        const perfEl = document.getElementById('perf');
-        const startStopButton = document.getElementById('startStopButton');
-        const processedImageEl = document.getElementById('processedImage');
-
-        // --- State Variables ---
-        let stream = null;
-        let captureInterval = null;
-        let isRunning = false;
-
-        /**
-         * Captures a frame from the video, sends it to the backend, and displays the result.
-         */
-        async function captureAndSendFrame() {
-            if (!isRunning) return;
-
-            statusEl.textContent = "Sending frame to built-in server...";
-            statusEl.classList.remove('text-green-600', 'text-red-600');
-            statusEl.classList.add('text-orange-600');
+        document.getElementById('submit-btn').addEventListener('click', async () => {
+            const prompt = document.getElementById('user-input').value;
+            const outputDiv = document.getElementById('output');
             
-            // 1. Draw video frame onto the hidden canvas
-            try {
-                ctx.drawImage(videoElement, 0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
-            } catch (e) {
-                console.error("Error drawing video frame:", e);
-                statusEl.textContent = "Error: Could not draw video frame.";
+            if (!prompt) {
+                outputDiv.textContent = 'Please enter a prompt.';
                 return;
             }
 
-            // 2. Convert canvas frame to Base64 JPEG data URL
-            const imageDataURL = canvas.toDataURL('image/jpeg', 0.8); 
-            const postTime = Date.now();
+            outputDiv.textContent = 'Thinking...';
             
             try {
-                // 3. Send the image data to the Python server
-                const response = await fetch(SERVER_URL, {
+                // The frontend makes a request to your custom Python backend
+                const response = await fetch('/api/ai', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ image_data: imageDataURL }),
+                    // Send user input as JSON
+                    body: JSON.stringify({ prompt: prompt })
                 });
-
-                const responseTime = Date.now();
-                const latency = responseTime - postTime;
 
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Server returned status ${response.status}. Response: ${errorText}`);
+                    throw new Error(`HTTP error! Status: ${response.status}`);
                 }
 
-                // 4. Parse the JSON response
                 const result = await response.json();
-
-                // 5. Display the processed image (Note: it will be the original image because of server limitations)
-                if (result.processed_image_data) {
-                    processedImageEl.src = result.processed_image_data;
-                    statusEl.textContent = "SUCCESS: Image received from built-in backend (Unprocessed).";
-                    statusEl.classList.remove('text-orange-600');
-                    statusEl.classList.add('text-green-600');
-                    perfEl.textContent = `Last POST: ${new Date().toLocaleTimeString()} | Round Trip Latency: ${latency}ms`;
-                } else {
-                    throw new Error("Server response missing processed image data.");
+                
+                if (result.response) {
+                    outputDiv.textContent = result.response;
+                } else if (result.error) {
+                    outputDiv.textContent = 'Backend Error: ' + result.error;
                 }
-
-            } catch (err) {
-                console.error("Fetch/Server Error:", err);
-                statusEl.textContent = `ERROR: Failed to connect to or process data on built-in server. Is Python server running on port 8000? (${err.message})`;
-                statusEl.classList.remove('text-orange-600', 'text-green-600');
-                statusEl.classList.add('text-red-600');
-            }
-        }
-
-
-        /**
-         * Starts the webcam stream and the frame sending interval.
-         */
-        async function startStream() {
-            if (isRunning) return;
-
-            statusEl.textContent = "Requesting camera access...";
-            
-            try {
-                // Request access to the video stream
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        width: { ideal: IMAGE_WIDTH }, 
-                        height: { ideal: IMAGE_HEIGHT } 
-                    } 
-                });
                 
-                // Attach the stream to the hidden video element
-                videoElement.srcObject = stream;
-                await new Promise(resolve => videoElement.onloadedmetadata = resolve);
-                videoElement.play();
-
-                // Start the frame sending interval
-                isRunning = true;
-                captureInterval = setInterval(captureAndSendFrame, TARGET_DELAY_MS);
-                
-                statusEl.textContent = "Camera active. Waiting for first server response...";
-                statusEl.classList.remove('text-red-600');
-                statusEl.classList.add('text-orange-600');
-
-                startStopButton.textContent = "Stop Camera & Built-in Processor";
-                startStopButton.classList.remove('bg-amber-600', 'hover:bg-amber-700');
-                startStopButton.classList.add('bg-red-600', 'hover:bg-red-700');
-                
-            } catch (err) {
-                console.error("Error accessing the camera:", err);
-                statusEl.textContent = `CRITICAL: Camera access denied or unavailable. (${err.name})`;
-                startStopButton.disabled = true;
+            } catch (error) {
+                console.error('Fetch error:', error);
+                outputDiv.textContent = 'Failed to connect to the backend server.';
             }
-        }
-
-        /**
-         * Stops the webcam stream and the frame sending interval.
-         */
-        function stopStream() {
-            if (!isRunning) return;
-
-            isRunning = false;
-            clearInterval(captureInterval);
-
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-            
-            statusEl.textContent = "Stream stopped.";
-            statusEl.classList.remove('text-green-600', 'text-orange-600');
-            statusEl.classList.add('text-red-600');
-            perfEl.textContent = `Last POST: N/A | Status: Idle`;
-            processedImageEl.src = "https://placehold.co/500x300/fecaca/991b1b?text=PROCESSOR+STOPPED";
-            
-            startStopButton.textContent = "Start Camera & Built-in Processor";
-            startStopButton.classList.remove('bg-red-600', 'hover:bg-red-700');
-            startStopButton.classList.add('bg-amber-600', 'hover:bg-amber-700');
-        }
-
-        /**
-         * Toggles the streaming state.
-         */
-        function toggleStream() {
-            if (isRunning) {
-                stopStream();
-            } else {
-                startStream();
-            }
-        }
-
-        // Initialize state on load
-        window.onload = () => {
-             startStopButton.classList.add('bg-amber-600', 'hover:bg-amber-700');
-             statusEl.textContent = "Ready. Press Start (ensure Python server is running on port 8000).";
-             statusEl.classList.add('text-gray-500');
-        };
-
-        window.addEventListener('beforeunload', stopStream);
-
+        });
     </script>
 </body>
 </html>
