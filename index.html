@@ -3,248 +3,220 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pi Rover Remote Control</title>
+    <title>Built-in Backend Demo</title>
+    <!-- Load Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f7fafc; }
-        /* Style for the button grid to look like a directional pad */
-        .dpad-grid {
-            display: grid;
-            grid-template-areas:
-                ". up ."
-                "left center right"
-                ". down .";
-            width: 180px;
-            margin: 0 auto;
-        }
-        .dpad-button {
-            @apply p-4 m-1 rounded-xl shadow-lg transition-all duration-150 ease-in-out font-bold text-white;
-            background: linear-gradient(145deg, #4c51bf, #667eea);
-            box-shadow: 5px 5px 10px #e2e8f0, -5px -5px 10px #ffffff;
-        }
-        .dpad-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 8px 8px 15px #c3c9d0, -8px -8px 15px #ffffff;
-        }
-        .dpad-button:active {
-            transform: translateY(0);
-            box-shadow: 2px 2px 5px #c3c9d0 inset, -2px -2px 5px #ffffff inset;
-        }
-        #stop-btn {
-            grid-area: center;
-            background: linear-gradient(145deg, #e53e3e, #f56565);
-        }
-        #up-btn { grid-area: up; }
-        #down-btn { grid-area: down; }
-        #left-btn { grid-area: left; }
-        #right-btn { grid-area: right; }
-        
-        #video-feed {
-            /* Make the video feed responsive and center it */
-            max-width: 100%; 
-            height: auto;
-            border-radius: 1rem;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
+        body { font-family: 'Inter', sans-serif; }
+        /* Hide the video element used for capturing frames */
+        #videoElement { display: none; }
     </style>
 </head>
-<body class="p-4 sm:p-8 flex flex-col items-center min-h-screen">
+<body class="bg-gray-50 flex flex-col items-center justify-center min-h-screen p-4">
 
-    <header class="text-center mb-8">
-        <h1 class="text-3xl font-extrabold text-gray-800">Pi Rover Command Center</h1>
-        <p class="text-gray-500 mt-1">Real-time video and remote motor control.</p>
-    </header>
+    <div class="w-full max-w-xl bg-white p-8 rounded-2xl shadow-2xl border border-gray-200 text-center">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">Built-in Python Server Demo</h1>
+        <p class="text-sm text-red-600 font-semibold mb-4">
+            ⚠️ WARNING: The Python server uses ONLY built-in modules (`http.server`) and CANNOT perform grayscale conversion. 
+            It will return the original image data (echo) to demonstrate connectivity.
+        </p>
 
-    <main class="w-full max-w-4xl">
+        <!-- Video and Canvas for local capture (Hidden) -->
+        <video id="videoElement" playsinline autoplay muted width="500" height="300" class="hidden"></video>
+        <canvas id="captureCanvas" width="500" height="300" class="hidden"></canvas>
         
-        <!-- Video Feed Container -->
-        <div class="bg-white p-2 rounded-xl shadow-2xl mb-8 border-4 border-indigo-500/50">
-            <h2 class="text-xl font-semibold mb-2 text-indigo-700">Live Camera Stream</h2>
-            <!-- 
-                FIXED: Ensure the <img> tag points directly to the /video_feed endpoint.
-                The browser will interpret this MJPEG stream as a continuous image update.
-            -->
-            <img id="video-feed" src="http://[YOUR_PI_IP_ADDRESS]:8000/video_feed" alt="Pi Camera Live Feed">
-            <p id="status-message" class="text-sm text-red-500 mt-2 hidden">Error: Failed to connect to stream.</p>
+        <!-- Image element to display the result from the backend -->
+        <div class="mt-4 mb-4">
+            <h2 class="text-xl font-semibold mb-2 text-gray-700">Processed Output (from Built-in Server)</h2>
+            <img id="processedImage" 
+                 src="https://placehold.co/500x300/e0f2fe/0369a1?text=Awaiting+Frame+from+Built-in+Backend" 
+                 alt="Image from built-in Python server" 
+                 class="w-full max-w-full rounded-xl border-4 border-amber-500 shadow-lg mx-auto"
+                 width="500" height="300">
         </div>
 
-        <!-- Controls -->
-        <div class="bg-white p-6 rounded-xl shadow-2xl">
-            <h2 class="text-xl font-semibold mb-6 text-indigo-700 text-center">Drive Controls</h2>
-            
-            <div class="dpad-grid">
-                <button id="up-btn" class="dpad-button">FORWARD</button>
-                <button id="left-btn" class="dpad-button">LEFT</button>
-                <button id="stop-btn" class="dpad-button">STOP</button>
-                <button id="right-btn" class="dpad-button">RIGHT</button>
-                <button id="down-btn" class="dpad-button">REVERSE</button>
-            </div>
-            
-            <p id="command-output" class="text-center mt-4 text-sm text-gray-600">Status: Ready</p>
+        <!-- Status and Control -->
+        <div class="space-y-2">
+            <p id="status" class="text-sm font-medium text-red-600">Initializing...</p>
+            <p id="perf" class="text-xs font-mono text-gray-600">Last POST: N/A | Status: Idle</p>
         </div>
-
-    </main>
+        
+        <button id="startStopButton" class="mt-6 w-full py-2 px-4 bg-amber-600 text-white font-semibold rounded-lg shadow-md hover:bg-amber-700 transition duration-150 ease-in-out" onclick="toggleStream()">
+            Start Camera & Built-in Processor
+        </button>
+    </div>
 
     <script>
-        // *** CRITICAL: UPDATE THIS WITH YOUR RASPBERRY PI'S IP ADDRESS ***
-        const PI_IP_ADDRESS = "[YOUR_PI_IP_ADDRESS]"; 
-        const BASE_URL = `http://${PI_IP_ADDRESS}:8000`;
+        // --- Configuration ---
+        // NOTE: http.server defaults to port 8000
+        const SERVER_URL = 'http://127.0.0.1:8000/process_frame';
+        const IMAGE_WIDTH = 500;
+        const IMAGE_HEIGHT = 300;
+        const TARGET_DELAY_MS = 1500; // 1.5 seconds delay between sending frames
 
-        const motorSpeeds = {
-            SLOW: 50,
-            MEDIUM: 100, // Use this as the default speed
-            FAST: 150
-        };
+        // --- DOM Elements ---
+        const videoElement = document.getElementById('videoElement');
+        const canvas = document.getElementById('captureCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusEl = document.getElementById('status');
+        const perfEl = document.getElementById('perf');
+        const startStopButton = document.getElementById('startStopButton');
+        const processedImageEl = document.getElementById('processedImage');
 
-        const controlMap = {
-            'up-btn': { left: motorSpeeds.MEDIUM, right: motorSpeeds.MEDIUM },
-            'down-btn': { left: -motorSpeeds.MEDIUM, right: -motorSpeeds.MEDIUM },
-            'left-btn': { left: -motorSpeeds.MEDIUM, right: motorSpeeds.MEDIUM },
-            'right-btn': { left: motorSpeeds.MEDIUM, right: -motorSpeeds.MEDIUM },
-        };
+        // --- State Variables ---
+        let stream = null;
+        let captureInterval = null;
+        let isRunning = false;
 
-        const commandOutput = document.getElementById('command-output');
-        const statusMessage = document.getElementById('status-message');
-        const videoFeed = document.getElementById('video-feed');
-        let currentCommand = 'stop';
-        let lastTouchTime = 0;
-        
-        // Setup the video stream source dynamically
-        videoFeed.src = `${BASE_URL}/video_feed`;
-        
-        // Handle stream connection errors
-        videoFeed.onerror = () => {
-             statusMessage.textContent = `Error: Cannot connect to the Pi Server at ${BASE_URL}. Check IP and server status.`;
-             statusMessage.classList.remove('hidden');
-        };
-        videoFeed.onload = () => {
-             statusMessage.classList.add('hidden');
-        };
+        /**
+         * Captures a frame from the video, sends it to the backend, and displays the result.
+         */
+        async function captureAndSendFrame() {
+            if (!isRunning) return;
 
+            statusEl.textContent = "Sending frame to built-in server...";
+            statusEl.classList.remove('text-green-600', 'text-red-600');
+            statusEl.classList.add('text-orange-600');
+            
+            // 1. Draw video frame onto the hidden canvas
+            try {
+                ctx.drawImage(videoElement, 0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
+            } catch (e) {
+                console.error("Error drawing video frame:", e);
+                statusEl.textContent = "Error: Could not draw video frame.";
+                return;
+            }
 
-        // Function to send command to the server
-        async function sendCommand(action, value = 0) {
-            if (action === currentCommand) return; // Prevent spamming same command
-
-            const payload = { action, value };
+            // 2. Convert canvas frame to Base64 JPEG data URL
+            const imageDataURL = canvas.toDataURL('image/jpeg', 0.8); 
+            const postTime = Date.now();
             
             try {
-                const response = await fetch(`${BASE_URL}/control`, {
+                // 3. Send the image data to the Python server
+                const response = await fetch(SERVER_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ image_data: imageDataURL }),
                 });
 
-                const result = await response.json();
-                
-                if (response.ok) {
-                    currentCommand = action;
-                    commandOutput.textContent = `Status: ${result.message} (L:${payload.value.left || 0}, R:${payload.value.right || 0})`;
-                    statusMessage.classList.add('hidden');
-                } else {
-                    throw new Error(result.message || "Command failed on server.");
+                const responseTime = Date.now();
+                const latency = responseTime - postTime;
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Server returned status ${response.status}. Response: ${errorText}`);
                 }
 
-            } catch (error) {
-                console.error('Error sending command:', error);
-                commandOutput.textContent = `Status: Connection Error. Is the server running?`;
-                statusMessage.textContent = `ERROR: Failed to communicate with server. ${error.message}`;
-                statusMessage.classList.remove('hidden');
+                // 4. Parse the JSON response
+                const result = await response.json();
+
+                // 5. Display the processed image (Note: it will be the original image because of server limitations)
+                if (result.processed_image_data) {
+                    processedImageEl.src = result.processed_image_data;
+                    statusEl.textContent = "SUCCESS: Image received from built-in backend (Unprocessed).";
+                    statusEl.classList.remove('text-orange-600');
+                    statusEl.classList.add('text-green-600');
+                    perfEl.textContent = `Last POST: ${new Date().toLocaleTimeString()} | Round Trip Latency: ${latency}ms`;
+                } else {
+                    throw new Error("Server response missing processed image data.");
+                }
+
+            } catch (err) {
+                console.error("Fetch/Server Error:", err);
+                statusEl.textContent = `ERROR: Failed to connect to or process data on built-in server. Is Python server running on port 8000? (${err.message})`;
+                statusEl.classList.remove('text-orange-600', 'text-green-600');
+                statusEl.classList.add('text-red-600');
             }
         }
-        
-        // --- Event Listeners for Control Buttons ---
-        
-        // Mouse Down (Start Movement) / Touch Start (Start Movement)
-        const startMovement = (event) => {
-            const buttonId = event.currentTarget.id;
-            const command = buttonId.replace('-btn', '');
-            const value = controlMap[buttonId] || { left: 0, right: 0 };
+
+
+        /**
+         * Starts the webcam stream and the frame sending interval.
+         */
+        async function startStream() {
+            if (isRunning) return;
+
+            statusEl.textContent = "Requesting camera access...";
             
-            // Prevent fast double-tap / click on touch devices from triggering two events
-            if (event.type === 'touchstart') {
-                const now = new Date().getTime();
-                if (now - lastTouchTime < 300) { // Simple double-tap detection
-                    event.preventDefault(); 
-                    return;
-                }
-                lastTouchTime = now;
-            }
-            
-            // Prevent default touch behavior (like zooming)
-            if (event.type === 'touchstart') {
-                event.preventDefault();
-            }
-
-            sendCommand('move', value);
-        };
-        
-        // Mouse Up (Stop Movement) / Touch End (Stop Movement)
-        const stopMovement = (event) => {
-            if (event.type === 'touchend') {
-                 // Prevent default touch behavior
-                event.preventDefault();
-            }
-            sendCommand('stop', { left: 0, right: 0 });
-        };
-        
-        // Special listener for the 'STOP' button (click/tap)
-        document.getElementById('stop-btn').addEventListener('click', () => {
-            sendCommand('stop', { left: 0, right: 0 });
-        });
-
-
-        ['up-btn', 'down-btn', 'left-btn', 'right-btn'].forEach(id => {
-            const button = document.getElementById(id);
-            if (button) {
-                // PC/Desktop: Mouse events
-                button.addEventListener('mousedown', startMovement);
-                button.addEventListener('mouseup', stopMovement);
-                button.addEventListener('mouseleave', stopMovement); // Important for safety
+            try {
+                // Request access to the video stream
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: IMAGE_WIDTH }, 
+                        height: { ideal: IMAGE_HEIGHT } 
+                    } 
+                });
                 
-                // Mobile/Touch: Touch events
-                button.addEventListener('touchstart', startMovement, { passive: false });
-                button.addEventListener('touchend', stopMovement, { passive: false });
-                button.addEventListener('touchcancel', stopMovement, { passive: false }); 
+                // Attach the stream to the hidden video element
+                videoElement.srcObject = stream;
+                await new Promise(resolve => videoElement.onloadedmetadata = resolve);
+                videoElement.play();
+
+                // Start the frame sending interval
+                isRunning = true;
+                captureInterval = setInterval(captureAndSendFrame, TARGET_DELAY_MS);
+                
+                statusEl.textContent = "Camera active. Waiting for first server response...";
+                statusEl.classList.remove('text-red-600');
+                statusEl.classList.add('text-orange-600');
+
+                startStopButton.textContent = "Stop Camera & Built-in Processor";
+                startStopButton.classList.remove('bg-amber-600', 'hover:bg-amber-700');
+                startStopButton.classList.add('bg-red-600', 'hover:bg-red-700');
+                
+            } catch (err) {
+                console.error("Error accessing the camera:", err);
+                statusEl.textContent = `CRITICAL: Camera access denied or unavailable. (${err.name})`;
+                startStopButton.disabled = true;
             }
-        });
+        }
 
-        // --- Keyboard Control (Desktop Fallback) ---
-        let keysPressed = {};
+        /**
+         * Stops the webcam stream and the frame sending interval.
+         */
+        function stopStream() {
+            if (!isRunning) return;
 
-        document.addEventListener('keydown', (e) => {
-            if (e.repeat) return;
-            keysPressed[e.key] = true;
+            isRunning = false;
+            clearInterval(captureInterval);
+
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
             
-            let commandKey = '';
-            if (e.key === 'ArrowUp' || e.key === 'w') commandKey = 'up-btn';
-            if (e.key === 'ArrowDown' || e.key === 's') commandKey = 'down-btn';
-            if (e.key === 'ArrowLeft' || e.key === 'a') commandKey = 'left-btn';
-            if (e.key === 'ArrowRight' || e.key === 'd') commandKey = 'right-btn';
+            statusEl.textContent = "Stream stopped.";
+            statusEl.classList.remove('text-green-600', 'text-orange-600');
+            statusEl.classList.add('text-red-600');
+            perfEl.textContent = `Last POST: N/A | Status: Idle`;
+            processedImageEl.src = "https://placehold.co/500x300/fecaca/991b1b?text=PROCESSOR+STOPPED";
+            
+            startStopButton.textContent = "Start Camera & Built-in Processor";
+            startStopButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+            startStopButton.classList.add('bg-amber-600', 'hover:bg-amber-700');
+        }
 
-            if (commandKey) {
-                e.preventDefault();
-                const value = controlMap[commandKey];
-                sendCommand('move', value);
+        /**
+         * Toggles the streaming state.
+         */
+        function toggleStream() {
+            if (isRunning) {
+                stopStream();
+            } else {
+                startStream();
             }
-        });
+        }
 
-        document.addEventListener('keyup', (e) => {
-            delete keysPressed[e.key];
+        // Initialize state on load
+        window.onload = () => {
+             startStopButton.classList.add('bg-amber-600', 'hover:bg-amber-700');
+             statusEl.textContent = "Ready. Press Start (ensure Python server is running on port 8000).";
+             statusEl.classList.add('text-gray-500');
+        };
 
-            let activeMovementKeys = false;
-            if (keysPressed['ArrowUp'] || keysPressed['w'] || keysPressed['ArrowDown'] || keysPressed['s'] ||
-                keysPressed['ArrowLeft'] || keysPressed['a'] || keysPressed['ArrowRight'] || keysPressed['d']) {
-                activeMovementKeys = true;
-            }
-
-            // Only stop if the released key was a movement key AND no other movement key is still pressed
-            if ((e.key in {'ArrowUp':1, 'w':1, 'ArrowDown':1, 's':1, 'ArrowLeft':1, 'a':1, 'ArrowRight':1, 'd':1}) && !activeMovementKeys) {
-                e.preventDefault();
-                sendCommand('stop', { left: 0, right: 0 });
-            }
-        });
+        window.addEventListener('beforeunload', stopStream);
 
     </script>
 </body>
