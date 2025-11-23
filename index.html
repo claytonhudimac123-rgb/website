@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi Rover Remote Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f7fafc; }
+        /* Style for the button grid to look like a directional pad */
+        .dpad-grid {
+            display: grid;
+            grid-template-areas:
+                ". up ."
+                "left center right"
+                ". down .";
+            width: 180px;
+            margin: 0 auto;
+        }
+        .dpad-button {
+            @apply p-4 m-1 rounded-xl shadow-lg transition-all duration-150 ease-in-out font-bold text-white;
+            background: linear-gradient(145deg, #4c51bf, #667eea);
+            box-shadow: 5px 5px 10px #e2e8f0, -5px -5px 10px #ffffff;
+        }
+        .dpad-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 8px 8px 15px #c3c9d0, -8px -8px 15px #ffffff;
+        }
+        .dpad-button:active {
+            transform: translateY(0);
+            box-shadow: 2px 2px 5px #c3c9d0 inset, -2px -2px 5px #ffffff inset;
+        }
+        #stop-btn {
+            grid-area: center;
+            background: linear-gradient(145deg, #e53e3e, #f56565);
+        }
+        #up-btn { grid-area: up; }
+        #down-btn { grid-area: down; }
+        #left-btn { grid-area: left; }
+        #right-btn { grid-area: right; }
+        
+        #video-feed {
+            /* Make the video feed responsive and center it */
+            max-width: 100%; 
+            height: auto;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8 flex flex-col items-center min-h-screen">
+
+    <header class="text-center mb-8">
+        <h1 class="text-3xl font-extrabold text-gray-800">Pi Rover Command Center</h1>
+        <p class="text-gray-500 mt-1">Real-time video and remote motor control.</p>
+    </header>
+
+    <main class="w-full max-w-4xl">
+        
+        <!-- Video Feed Container -->
+        <div class="bg-white p-2 rounded-xl shadow-2xl mb-8 border-4 border-indigo-500/50">
+            <h2 class="text-xl font-semibold mb-2 text-indigo-700">Live Camera Stream</h2>
+            <!-- 
+                FIXED: Ensure the <img> tag points directly to the /video_feed endpoint.
+                The browser will interpret this MJPEG stream as a continuous image update.
+            -->
+            <img id="video-feed" src="http://[YOUR_PI_IP_ADDRESS]:8000/video_feed" alt="Pi Camera Live Feed">
+            <p id="status-message" class="text-sm text-red-500 mt-2 hidden">Error: Failed to connect to stream.</p>
+        </div>
+
+        <!-- Controls -->
+        <div class="bg-white p-6 rounded-xl shadow-2xl">
+            <h2 class="text-xl font-semibold mb-6 text-indigo-700 text-center">Drive Controls</h2>
+            
+            <div class="dpad-grid">
+                <button id="up-btn" class="dpad-button">FORWARD</button>
+                <button id="left-btn" class="dpad-button">LEFT</button>
+                <button id="stop-btn" class="dpad-button">STOP</button>
+                <button id="right-btn" class="dpad-button">RIGHT</button>
+                <button id="down-btn" class="dpad-button">REVERSE</button>
+            </div>
+            
+            <p id="command-output" class="text-center mt-4 text-sm text-gray-600">Status: Ready</p>
+        </div>
+
+    </main>
+
+    <script>
+        // *** CRITICAL: UPDATE THIS WITH YOUR RASPBERRY PI'S IP ADDRESS ***
+        const PI_IP_ADDRESS = "[YOUR_PI_IP_ADDRESS]"; 
+        const BASE_URL = `http://${PI_IP_ADDRESS}:8000`;
+
+        const motorSpeeds = {
+            SLOW: 50,
+            MEDIUM: 100, // Use this as the default speed
+            FAST: 150
+        };
+
+        const controlMap = {
+            'up-btn': { left: motorSpeeds.MEDIUM, right: motorSpeeds.MEDIUM },
+            'down-btn': { left: -motorSpeeds.MEDIUM, right: -motorSpeeds.MEDIUM },
+            'left-btn': { left: -motorSpeeds.MEDIUM, right: motorSpeeds.MEDIUM },
+            'right-btn': { left: motorSpeeds.MEDIUM, right: -motorSpeeds.MEDIUM },
+        };
+
+        const commandOutput = document.getElementById('command-output');
+        const statusMessage = document.getElementById('status-message');
+        const videoFeed = document.getElementById('video-feed');
+        let currentCommand = 'stop';
+        let lastTouchTime = 0;
+        
+        // Setup the video stream source dynamically
+        videoFeed.src = `${BASE_URL}/video_feed`;
+        
+        // Handle stream connection errors
+        videoFeed.onerror = () => {
+             statusMessage.textContent = `Error: Cannot connect to the Pi Server at ${BASE_URL}. Check IP and server status.`;
+             statusMessage.classList.remove('hidden');
+        };
+        videoFeed.onload = () => {
+             statusMessage.classList.add('hidden');
+        };
+
+
+        // Function to send command to the server
+        async function sendCommand(action, value = 0) {
+            if (action === currentCommand) return; // Prevent spamming same command
+
+            const payload = { action, value };
+            
+            try {
+                const response = await fetch(`${BASE_URL}/control`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    currentCommand = action;
+                    commandOutput.textContent = `Status: ${result.message} (L:${payload.value.left || 0}, R:${payload.value.right || 0})`;
+                    statusMessage.classList.add('hidden');
+                } else {
+                    throw new Error(result.message || "Command failed on server.");
+                }
+
+            } catch (error) {
+                console.error('Error sending command:', error);
+                commandOutput.textContent = `Status: Connection Error. Is the server running?`;
+                statusMessage.textContent = `ERROR: Failed to communicate with server. ${error.message}`;
+                statusMessage.classList.remove('hidden');
+            }
+        }
+        
+        // --- Event Listeners for Control Buttons ---
+        
+        // Mouse Down (Start Movement) / Touch Start (Start Movement)
+        const startMovement = (event) => {
+            const buttonId = event.currentTarget.id;
+            const command = buttonId.replace('-btn', '');
+            const value = controlMap[buttonId] || { left: 0, right: 0 };
+            
+            // Prevent fast double-tap / click on touch devices from triggering two events
+            if (event.type === 'touchstart') {
+                const now = new Date().getTime();
+                if (now - lastTouchTime < 300) { // Simple double-tap detection
+                    event.preventDefault(); 
+                    return;
+                }
+                lastTouchTime = now;
+            }
+            
+            // Prevent default touch behavior (like zooming)
+            if (event.type === 'touchstart') {
+                event.preventDefault();
+            }
+
+            sendCommand('move', value);
+        };
+        
+        // Mouse Up (Stop Movement) / Touch End (Stop Movement)
+        const stopMovement = (event) => {
+            if (event.type === 'touchend') {
+                 // Prevent default touch behavior
+                event.preventDefault();
+            }
+            sendCommand('stop', { left: 0, right: 0 });
+        };
+        
+        // Special listener for the 'STOP' button (click/tap)
+        document.getElementById('stop-btn').addEventListener('click', () => {
+            sendCommand('stop', { left: 0, right: 0 });
+        });
+
+
+        ['up-btn', 'down-btn', 'left-btn', 'right-btn'].forEach(id => {
+            const button = document.getElementById(id);
+            if (button) {
+                // PC/Desktop: Mouse events
+                button.addEventListener('mousedown', startMovement);
+                button.addEventListener('mouseup', stopMovement);
+                button.addEventListener('mouseleave', stopMovement); // Important for safety
+                
+                // Mobile/Touch: Touch events
+                button.addEventListener('touchstart', startMovement, { passive: false });
+                button.addEventListener('touchend', stopMovement, { passive: false });
+                button.addEventListener('touchcancel', stopMovement, { passive: false }); 
+            }
+        });
+
+        // --- Keyboard Control (Desktop Fallback) ---
+        let keysPressed = {};
+
+        document.addEventListener('keydown', (e) => {
+            if (e.repeat) return;
+            keysPressed[e.key] = true;
+            
+            let commandKey = '';
+            if (e.key === 'ArrowUp' || e.key === 'w') commandKey = 'up-btn';
+            if (e.key === 'ArrowDown' || e.key === 's') commandKey = 'down-btn';
+            if (e.key === 'ArrowLeft' || e.key === 'a') commandKey = 'left-btn';
+            if (e.key === 'ArrowRight' || e.key === 'd') commandKey = 'right-btn';
+
+            if (commandKey) {
+                e.preventDefault();
+                const value = controlMap[commandKey];
+                sendCommand('move', value);
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            delete keysPressed[e.key];
+
+            let activeMovementKeys = false;
+            if (keysPressed['ArrowUp'] || keysPressed['w'] || keysPressed['ArrowDown'] || keysPressed['s'] ||
+                keysPressed['ArrowLeft'] || keysPressed['a'] || keysPressed['ArrowRight'] || keysPressed['d']) {
+                activeMovementKeys = true;
+            }
+
+            // Only stop if the released key was a movement key AND no other movement key is still pressed
+            if ((e.key in {'ArrowUp':1, 'w':1, 'ArrowDown':1, 's':1, 'ArrowLeft':1, 'a':1, 'ArrowRight':1, 'd':1}) && !activeMovementKeys) {
+                e.preventDefault();
+                sendCommand('stop', { left: 0, right: 0 });
+            }
+        });
+
+    </script>
+</body>
+</html>
